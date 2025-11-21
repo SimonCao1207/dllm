@@ -39,6 +39,8 @@ class LLaDAEvalConfig(LLaDAGeneratorConfig):
     mc_num: int = 128
     is_check_greedy: bool = True
     device: str = "cuda"
+    
+    use_cache: bool = False
 
 
 @register_model("llada")
@@ -65,6 +67,7 @@ class LLaDAEvalHarness(LM):
         block_length = kwargs.get("block_length", config.block_length)
         max_length = kwargs.get("max_length", config.max_length)
         remasking = kwargs.get("remasking", config.remasking)
+        use_cache = kwargs.get("use_cache", config.use_cache)
 
         accelerator = accelerate.Accelerator()
 
@@ -111,6 +114,7 @@ class LLaDAEvalHarness(LM):
         self.cfg = float(cfg)
         self.remasking = remasking
         self.is_check_greedy = is_check_greedy
+        self.use_cache = use_cache
 
         # loglikelihood params
         self.mc_num = int(mc_num)
@@ -325,15 +329,26 @@ class LLaDAEvalHarness(LM):
         for elem in tqdm(ds, desc="Generating..."):
             prompt = [elem["question"].to(self.device)]
             stop_tokens = elem["until"]
-            generated_ids = generator.generate(
-                inputs=prompt,
-                steps=self.steps,
-                max_new_tokens=self.max_new_tokens,
-                block_length=self.block_length,
-                temperature=0.0,
-                cfg_scale=self.cfg,
-                remasking=self.remasking,
-            )
+            if self.use_cache:
+                generated_ids = generator.generate_with_prefix_cache(
+                    inputs=prompt,
+                    steps=self.steps,
+                    max_new_tokens=self.max_new_tokens,
+                    block_length=self.block_length,
+                    temperature=0.0,
+                    cfg_scale=self.cfg,
+                    remasking=self.remasking,
+                )
+            else:
+                generated_ids = generator.generate(
+                    inputs=prompt,
+                    steps=self.steps,
+                    max_new_tokens=self.max_new_tokens,
+                    block_length=self.block_length,
+                    temperature=0.0,
+                    cfg_scale=self.cfg,
+                    remasking=self.remasking,
+                )
             generated_answer = self.tokenizer.decode(
                 generated_ids[0][prompt[0].shape[0] :], skip_special_tokens=False
             )
